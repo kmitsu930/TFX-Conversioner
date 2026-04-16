@@ -1,6 +1,6 @@
-const { extractPngBlocks } = require("./src/parser/pngExtractor");
-const { extractTextCandidates } = require("./src/parser/textExtractor");
-const { extractStyleInfo } = require("./src/parser/styleExtractor");
+const { extractPngBlocks } = require("./pngExtractor");
+const { extractTextCandidates } = require("./textExtractor");
+const { extractStyleInfo } = require("./styleExtractor");
 
 function createLogger(onLog) {
   const push = (level, message) => {

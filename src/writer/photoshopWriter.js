@@ -1,6 +1,9 @@
 const photoshop = require("photoshop");
 const { app, core, action } = photoshop;
 const fs = require("uxp").storage.localFileSystem;
+const { storage } = require("uxp");
+const { toArrayBuffer } = require("../utils/binary");
+const { formatErrorDetails } = require("../utils/errorLogger");
 
 async function createNewDocument(width, height, name) {
   const doc = await app.createDocument({
@@ -51,7 +54,8 @@ function hexToRgb(hex) {
 async function savePngToTemp(png, idx) {
   const temp = await fs.getTemporaryFolder();
   const file = await temp.createFile(`tfx_extract_${idx + 1}.png`, { overwrite: true });
-  await file.write(png.data.buffer.slice(png.data.byteOffset, png.data.byteOffset + png.data.byteLength), { format: require("uxp").storage.formats.binary });
+  const binary = toArrayBuffer(png.data);
+  await file.write(binary, { format: storage.formats.binary });
   return file;
 }
 
@@ -140,7 +144,9 @@ async function writeToPhotoshop(parseResult, options, onLog) {
           await placePngFile(file, layerName);
           log(`PNG配置: ${layerName} (${png.width || "?"}x${png.height || "?"})`);
         } catch (error) {
-          log(`PNG配置失敗 index=${i}: ${error.message}`);
+          const details = formatErrorDetails(error, `PNG配置失敗 index=${i}`);
+          log(details.summary);
+          log(details.stack);
         }
       }
     }

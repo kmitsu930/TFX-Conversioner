@@ -1,7 +1,7 @@
 const { storage } = require("uxp");
 const fs = storage.localFileSystem;
-const { parseTfxFile } = require("./src/parser/tfxParser");
-const { writeToPhotoshop } = require("./src/writer/photoshopWriter");
+const { parseTfxFile } = require("./parser/tfxParser");
+const { writeToPhotoshop } = require("./writer/photoshopWriter");
 
 let selectedFile = null;
 

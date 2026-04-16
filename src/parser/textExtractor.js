@@ -1,5 +1,8 @@
 const { decodeText } = require("../utils/binary");
 
+const DEFAULT_GROUP_GAP = 16;
+const CONTEXT_BYTES = 32;
+
 function isLikelyText(str) {
   if (!str) return false;
   const trimmed = str.trim();
@@ -153,20 +156,163 @@ function scoreCandidate(value) {
   return score;
 }
 
-function pickMainText(candidates) {
+function pickMainText(candidates, groups = []) {
+  if (groups.length > 0) {
+    return [...groups]
+      .sort((a, b) => b.text.length - a.text.length || a.startOffset - b.startOffset)
+      .map((g) => ({ value: g.text, encoding: "utf16-object-group", offset: g.startOffset, guessed: true }))[0];
+  }
+
   if (!candidates.length) return null;
   return [...candidates].sort((a, b) => scoreCandidate(b.value) - scoreCandidate(a.value))[0];
 }
 
-function extractTextCandidates(bytes, logger) {
+function buildMask(bytesLength, excludedRanges) {
+  const mask = new Uint8Array(bytesLength);
+  for (const range of excludedRanges) {
+    const start = Math.max(0, range.start);
+    const end = Math.min(bytesLength, range.end);
+    for (let i = start; i < end; i += 1) {
+      mask[i] = 1;
+    }
+  }
+  return mask;
+}
+
+function isAllowedCodePoint(code) {
+  const isAsciiAlnum =
+    (code >= 0x30 && code <= 0x39) ||
+    (code >= 0x41 && code <= 0x5a) ||
+    (code >= 0x61 && code <= 0x7a);
+  const isJapanese =
+    (code >= 0x3040 && code <= 0x309f) ||
+    (code >= 0x30a0 && code <= 0x30ff) ||
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    (code >= 0xff66 && code <= 0xff9d);
+  const isFullWidthAlnum =
+    (code >= 0xff10 && code <= 0xff19) ||
+    (code >= 0xff21 && code <= 0xff3a) ||
+    (code >= 0xff41 && code <= 0xff5a);
+
+  return isAsciiAlnum || isJapanese || isFullWidthAlnum;
+}
+
+function toHex(value) {
+  return value.toString(16).padStart(2, "0");
+}
+
+function buildContextDump(bytes, offset, contextBytes = CONTEXT_BYTES) {
+  const from = Math.max(0, offset - contextBytes);
+  const to = Math.min(bytes.length, offset + 2 + contextBytes);
+  const parts = [];
+  for (let i = from; i < to; i += 1) {
+    parts.push(toHex(bytes[i]));
+  }
+  return {
+    from,
+    to,
+    hex: parts.join(" ")
+  };
+}
+
+function collectCharCandidates(bytes, excludedRanges = []) {
+  const excludedMask = buildMask(bytes.length, excludedRanges);
+  const results = [];
+
+  for (let i = 0; i + 1 < bytes.length; i += 2) {
+    if (excludedMask[i] || excludedMask[i + 1]) continue;
+
+    const le = bytes[i] | (bytes[i + 1] << 8);
+    if (isAllowedCodePoint(le)) {
+      const char = String.fromCodePoint(le);
+      const context = buildContextDump(bytes, i);
+      results.push({
+        char,
+        offset: i,
+        encoding: "utf16le",
+        context
+      });
+    }
+
+    const be = (bytes[i] << 8) | bytes[i + 1];
+    if (isAllowedCodePoint(be)) {
+      const char = String.fromCodePoint(be);
+      const context = buildContextDump(bytes, i);
+      results.push({
+        char,
+        offset: i,
+        encoding: "utf16be",
+        context
+      });
+    }
+  }
+
+  const uniq = [];
+  const seen = new Set();
+  for (const candidate of results) {
+    const key = `${candidate.offset}:${candidate.char}:${candidate.encoding}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(candidate);
+  }
+
+  uniq.sort((a, b) => a.offset - b.offset || a.encoding.localeCompare(b.encoding));
+  return uniq;
+}
+
+function groupCharCandidates(candidates, groupGap = DEFAULT_GROUP_GAP) {
+  if (!candidates.length) return [];
+
+  const groups = [];
+  let current = {
+    startOffset: candidates[0].offset,
+    endOffset: candidates[0].offset,
+    chars: [candidates[0]]
+  };
+
+  for (let i = 1; i < candidates.length; i += 1) {
+    const candidate = candidates[i];
+    if (candidate.offset - current.endOffset <= groupGap) {
+      current.chars.push(candidate);
+      current.endOffset = candidate.offset;
+      continue;
+    }
+
+    groups.push(current);
+    current = {
+      startOffset: candidate.offset,
+      endOffset: candidate.offset,
+      chars: [candidate]
+    };
+  }
+  groups.push(current);
+
+  return groups.map((group, idx) => ({
+    id: idx + 1,
+    startOffset: group.startOffset,
+    endOffset: group.endOffset,
+    text: group.chars.map((c) => c.char).join(""),
+    chars: group.chars
+  }));
+}
+
+function extractTextCandidates(bytes, logger, options = {}) {
+  const excludedRanges = options.excludedRanges || [];
+  const groupGap = Number.isInteger(options.groupGap) ? options.groupGap : DEFAULT_GROUP_GAP;
+
   const candidates = uniqByValue([
     ...extractAsciiUtf8(bytes),
     ...extractUtf16LE(bytes),
     ...extractUtf16BE(bytes)
   ]);
 
-  const mainText = pickMainText(candidates);
+  const charCandidates = collectCharCandidates(bytes, excludedRanges);
+  const groups = groupCharCandidates(charCandidates, groupGap);
+  const mainText = pickMainText(candidates, groups);
+
   logger.info(`文字列候補: ${candidates.length}件`);
+  logger.info(`1文字候補(UTF-16): ${charCandidates.length}件`);
+  logger.info(`文字グループ: ${groups.length}件 (gap<=${groupGap} bytes)`);
   if (mainText) {
     logger.info(`TEXT_MAIN候補: ${mainText.value}`);
   } else {
@@ -175,7 +321,9 @@ function extractTextCandidates(bytes, logger) {
 
   return {
     mainText,
-    candidates
+    candidates,
+    charCandidates,
+    groups
   };
 }
 

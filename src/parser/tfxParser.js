@@ -1,6 +1,7 @@
 const { extractPngBlocks } = require("./pngExtractor");
 const { extractTextCandidates } = require("./textExtractor");
 const { extractStyleInfo } = require("./styleExtractor");
+const { storage } = require("uxp");
 
 function createLogger(onLog) {
   const push = (level, message) => {
@@ -16,8 +17,8 @@ function createLogger(onLog) {
 
 async function readFileAsUint8Array(file, logger) {
   logger.info(`ファイル読込開始: ${file.name}`);
-  const arrayBuffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(arrayBuffer);
+  const binaryData = await file.read({ format: storage.formats.binary });
+  const bytes = binaryData instanceof Uint8Array ? binaryData : new Uint8Array(binaryData);
   logger.info(`ファイル読込完了: ${bytes.length} bytes`);
   return bytes;
 }

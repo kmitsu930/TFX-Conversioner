@@ -1,3 +1,5 @@
+const { decodeText } = require("../utils/binary");
+
 function isLikelyText(str) {
   if (!str) return false;
   const trimmed = str.trim();
@@ -22,7 +24,7 @@ function pushCandidate(target, value, encoding, offset, guessed = true) {
 
 function safeDecode(bytes, encoding) {
   try {
-    return new TextDecoder(encoding, { fatal: false }).decode(bytes);
+    return decodeText(bytes, encoding, false);
   } catch (e) {
     return "";
   }

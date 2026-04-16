@@ -2,6 +2,8 @@ const { extractPngBlocks } = require("./pngExtractor");
 const { extractTextCandidates } = require("./textExtractor");
 const { extractStyleInfo } = require("./styleExtractor");
 const { storage } = require("uxp");
+const { toUint8Array } = require("../utils/binary");
+const { formatErrorDetails } = require("../utils/errorLogger");
 
 function createLogger(onLog) {
   const push = (level, message) => {
@@ -18,7 +20,7 @@ function createLogger(onLog) {
 async function readFileAsUint8Array(file, logger) {
   logger.info(`ファイル読込開始: ${file.name}`);
   const binaryData = await file.read({ format: storage.formats.binary });
-  const bytes = binaryData instanceof Uint8Array ? binaryData : new Uint8Array(binaryData);
+  const bytes = toUint8Array(binaryData);
   logger.info(`ファイル読込完了: ${bytes.length} bytes`);
   return bytes;
 }
@@ -75,8 +77,6 @@ function buildInfoLines({ sourceName, textResult, pngs, styleInfo, includeUnknow
 }
 
 async function parseTfxFile(file, options = {}, onLog) {
-  const logger = createLogger(onLog);
-
   const result = {
     sourceName: file.name,
     text: { mainText: null, candidates: [] },
@@ -108,8 +108,10 @@ async function parseTfxFile(file, options = {}, onLog) {
     });
     log.info("解析完了（部分成功含む）");
   } catch (error) {
-    log.error(`解析エラー: ${error.message}`);
-    result.infoText.main += `\nERROR: ${error.message}`;
+    const details = formatErrorDetails(error, "TFX解析エラー");
+    log.error(details.summary);
+    log.error(details.stack);
+    result.infoText.main += `\nERROR: ${details.summary}`;
   }
 
   return result;

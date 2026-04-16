@@ -2,6 +2,7 @@ const { storage } = require("uxp");
 const fs = storage.localFileSystem;
 const { parseTfxFile } = require("./src/parser/tfxParser");
 const { writeToPhotoshop } = require("./src/writer/photoshopWriter");
+const { formatErrorDetails } = require("./src/utils/errorLogger");
 
 let selectedFile = null;
 
@@ -20,6 +21,12 @@ const elements = {
 function appendLog(message) {
   elements.logArea.textContent += `${message}\n`;
   elements.logArea.scrollTop = elements.logArea.scrollHeight;
+}
+
+function appendError(error, context) {
+  const details = formatErrorDetails(error, context);
+  appendLog(details.summary);
+  appendLog(details.stack);
 }
 
 function setSelectedFile(file) {
@@ -45,7 +52,7 @@ async function chooseFile() {
       appendLog(`[UI] ファイル選択: ${file.name}`);
     }
   } catch (error) {
-    appendLog(`[UI][ERROR] ファイル選択失敗: ${error.message}`);
+    appendError(error, "UI ファイル選択失敗");
   }
 }
 
@@ -64,7 +71,7 @@ async function runParseAndWrite() {
     await writeToPhotoshop(parseResult, options, appendLog);
     appendLog("[UI] 完了: 部分解析でも出力を作成しました。");
   } catch (error) {
-    appendLog(`[UI][ERROR] 処理失敗: ${error.message}`);
+    appendError(error, "UI 処理失敗");
   } finally {
     elements.runBtn.disabled = false;
   }
@@ -97,7 +104,7 @@ function setupDragAndDrop() {
       appendLog("[UI][WARN] UXP制約によりドロップ経由ファイルは直接利用できない場合があります。再選択を案内します。");
       await chooseFile();
     } catch (error) {
-      appendLog(`[UI][WARN] ドロップ処理失敗: ${error.message}`);
+      appendError(error, "UI ドロップ処理失敗");
     }
   });
 }

@@ -32,5 +32,8 @@
         "height": 760
       }
     }
-  ]
+  ],
+  "requiredPermissions": {
+    "localFileSystem": "request"
+  }
 }

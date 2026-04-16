@@ -47,6 +47,18 @@ function buildInfoLines({ sourceName, textResult, pngs, styleInfo, includeUnknow
     linesStyle.push(`TEXT_CANDIDATE[${idx + 1}]: ${c.value} encoding=${c.encoding} guessed=${c.guessed} offset=0x${c.offset.toString(16)}`);
   });
 
+  textResult.charCandidates.slice(0, 300).forEach((c, idx) => {
+    linesStyle.push(
+      `CHAR_CANDIDATE[${idx + 1}]: char=${c.char} encoding=${c.encoding} offset=0x${c.offset.toString(16)} context=0x${c.context.from.toString(16)}-0x${c.context.to.toString(16)} dump=${c.context.hex}`
+    );
+  });
+
+  textResult.groups.slice(0, 100).forEach((g) => {
+    linesStyle.push(
+      `CHAR_GROUP[${g.id}]: offset=0x${g.startOffset.toString(16)}-0x${g.endOffset.toString(16)} count=${g.chars.length} text=${g.text}`
+    );
+  });
+
   pngs.forEach((p, idx) => {
     linesStyle.push(`PNG[${idx + 1}]: ${p.width || "?"}x${p.height || "?"} length=${p.length} offset=0x${p.offset.toString(16)} guessed=${p.width ? "false" : "true"}`);
   });
@@ -79,7 +91,7 @@ function buildInfoLines({ sourceName, textResult, pngs, styleInfo, includeUnknow
 async function parseTfxFile(file, options = {}, onLog) {
   const result = {
     sourceName: file.name,
-    text: { mainText: null, candidates: [] },
+    text: { mainText: null, candidates: [], charCandidates: [], groups: [] },
     pngs: [],
     style: { fonts: [], sizes: [], colors: [], unknowns: [], edges: [], shadows: [], frames: [] },
     infoText: { main: "", style: "", unknown: "" },
@@ -94,9 +106,12 @@ async function parseTfxFile(file, options = {}, onLog) {
 
   try {
     const bytes = await readFileAsUint8Array(file, log);
-    result.text = extractTextCandidates(bytes, log);
+    const allPngs = extractPngBlocks(bytes, log);
+    const excludedRanges = allPngs.map((p) => ({ start: p.offset, end: p.end }));
+
+    result.text = extractTextCandidates(bytes, log, { excludedRanges });
     if (options.extractPng !== false) {
-      result.pngs = extractPngBlocks(bytes, log);
+      result.pngs = allPngs;
     }
     result.style = extractStyleInfo(bytes, result.text, result.pngs, log);
     result.infoText = buildInfoLines({
